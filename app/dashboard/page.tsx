@@ -66,13 +66,10 @@ export default function DashboardPage() {
 
   if (!authenticated || !user) return null;
 
-  const farcaster = user.farcaster;
   const twitter = user.twitter;
-  const displayName =
-    farcaster?.displayName ?? farcaster?.username ?? twitter?.name ?? null;
-  const username = farcaster?.username ?? twitter?.username ?? null;
-  const pfpUrl =
-    farcaster?.pfp ?? (twitter?.profilePictureUrl?.replace('_normal', '') ?? null);
+  const displayName = twitter?.name ?? null;
+  const username = twitter?.username ?? null;
+  const pfpUrl = twitter?.profilePictureUrl?.replace('_normal', '') ?? null;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] px-6 py-10">

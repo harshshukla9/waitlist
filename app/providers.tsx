@@ -14,7 +14,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     <PrivyProvider
       appId={privyAppId}
       config={{
-        loginMethods: ['twitter', 'farcaster'],
+        loginMethods: ['twitter'],
         externalWallets: {},
         appearance: {
           theme: 'dark',

@@ -11,7 +11,7 @@ export default function CustomOGImageAction() {
   const handleGenerateCustomOGImage = () => {
     const ogImageUrl = `${APP_URL}/api/og?username=${username}&image=${pfpUrl}`;
     actions?.composeCast({
-      text: "I generated a custom OG image using Monad Mini App template",
+      text: "I generated a custom OG image using this Mini App",
       embeds: [ogImageUrl],
     });
   };

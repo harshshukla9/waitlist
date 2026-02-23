@@ -1,6 +1,7 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
+import { base } from 'viem/chains';
 import { Providers as AppProviders } from '@/components/providers';
 
 const rawPrivyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
@@ -16,6 +17,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ['twitter'],
         externalWallets: {},
+        supportedChains: [base],
+        defaultChain: base,
         appearance: {
           theme: 'dark',
           accentColor: '#0052FF',

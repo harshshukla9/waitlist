@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const username = searchParams.get('username') || 'User';
-    const imageUrl = searchParams.get('image') || 'https://i.ibb.co/NdyfX1qx/Monad-Logo-Black-Logo-Mark.png';
+    const imageUrl = searchParams.get('image') || '';
     
     const backgroundGradient = '#2D1B69';
     
@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
                   fontFamily: 'Inter, system-ui, sans-serif',
                 }}
               >
-                Generated using Monad Mini App Template
+                Generated using Mini App
               </p>
             </div>
           </div>

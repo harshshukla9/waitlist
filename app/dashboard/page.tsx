@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 function ConnectWalletSection() {
   const { getAccessToken } = usePrivy();
   const { connectWallet } = useConnectWallet({
-    onSuccess: async (wallet) => {
+    onSuccess: async ({ wallet }) => {
       try {
         const accessToken = await getAccessToken();
         if (!accessToken) return;
@@ -66,9 +66,13 @@ export default function DashboardPage() {
 
   if (!authenticated || !user) return null;
 
-  const twitterUsername = user.twitter?.username ?? null;
-  const twitterPfp = user.twitter?.profilePictureUrl ?? null;
-  const twitterName = user.twitter?.name ?? null;
+  const farcaster = user.farcaster;
+  const twitter = user.twitter;
+  const displayName =
+    farcaster?.displayName ?? farcaster?.username ?? twitter?.name ?? null;
+  const username = farcaster?.username ?? twitter?.username ?? null;
+  const pfpUrl =
+    farcaster?.pfp ?? (twitter?.profilePictureUrl?.replace('_normal', '') ?? null);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] px-6 py-10">
@@ -85,9 +89,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-col items-center gap-4 rounded-xl border border-white/10 bg-white/5 p-6">
-          {twitterPfp ? (
+          {pfpUrl ? (
             <img
-              src={twitterPfp.replace('_normal', '')}
+              src={pfpUrl}
               alt="Profile"
               className="h-20 w-20 rounded-full object-cover"
             />
@@ -96,11 +100,11 @@ export default function DashboardPage() {
               ?
             </div>
           )}
-          {twitterName && (
-            <p className="text-lg font-medium text-white">{twitterName}</p>
+          {displayName && (
+            <p className="text-lg font-medium text-white">{displayName}</p>
           )}
-          {twitterUsername && (
-            <p className="text-white/70">@{twitterUsername}</p>
+          {username && (
+            <p className="text-white/70">@{username}</p>
           )}
         </div>
 

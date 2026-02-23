@@ -1,6 +1,6 @@
 'use client';
 
-import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth';
+import { usePrivy, useLoginWithOAuth, useLogin } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useCallback, useRef } from 'react';
 import {
@@ -11,37 +11,57 @@ import {
   PRIVY_AUTH_COMPLETE,
 } from '@/lib/auth-utils';
 
+function useSyncUserToBackend() {
+  const { getAccessToken } = usePrivy();
+  return useCallback(
+    async (privyUser: { twitter?: { subject: string; username: string | null; profilePictureUrl: string | null }; farcaster?: { fid: number | null; username: string | null; displayName: string | null; pfp: string | null } }) => {
+      const twitter = privyUser.twitter;
+      const farcaster = privyUser.farcaster;
+      if (!twitter && !farcaster) return;
+
+      try {
+        const accessToken = await getAccessToken();
+        if (!accessToken) return;
+
+        const body = farcaster
+          ? {
+              farcasterFid: farcaster.fid ?? 0,
+              username: farcaster.username ?? farcaster.displayName ?? '',
+              pfpUrl: farcaster.pfp ?? null,
+            }
+          : {
+              twitterId: twitter!.subject,
+              username: twitter!.username ?? '',
+              pfpUrl: twitter!.profilePictureUrl ?? null,
+            };
+
+        await fetch('/api/users/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        console.error('Failed to create/update user:', err);
+      }
+    },
+    [getAccessToken]
+  );
+}
+
 export default function LoginPage() {
   const { ready, authenticated, getAccessToken } = usePrivy();
-  const { initOAuth } = useLoginWithOAuth({
-    onComplete: useCallback(
-      async ({ user: privyUser }) => {
-        const twitter = privyUser.twitter;
-        if (!twitter) return;
-
-        try {
-          const accessToken = await getAccessToken();
-          if (!accessToken) return;
-
-          await fetch('/api/users/create', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              twitterId: twitter.subject,
-              username: twitter.username ?? '',
-              pfpUrl: twitter.profilePictureUrl ?? null,
-            }),
-          });
-        } catch (err) {
-          console.error('Failed to create/update user:', err);
-        }
-      },
-      [getAccessToken]
-    ),
-  });
+  const syncUser = useSyncUserToBackend();
+  const loginComplete = useCallback(
+    async ({ user: privyUser }: { user: { twitter?: { subject: string; username: string | null; profilePictureUrl: string | null }; farcaster?: { fid: number | null; username: string | null; displayName: string | null; pfp: string | null } } }) => {
+      await syncUser(privyUser);
+    },
+    [syncUser]
+  );
+  const { login } = useLogin({ onComplete: loginComplete });
+  const { initOAuth } = useLoginWithOAuth({ onComplete: loginComplete });
   const router = useRouter();
   const inIframe = isInIframe();
   const isPopup = isPopupWindow();
@@ -104,9 +124,12 @@ export default function LoginPage() {
     );
   }
 
-  const handleSignIn = () => {
+  const handleSignInFarcaster = () => {
+    login();
+  };
+
+  const handleSignInTwitter = () => {
     if (inIframe) {
-      // Open OAuth in a new window so Twitter isn't loaded inside the iframe (x.com refuses to connect in iframes)
       const url = getOAuthPopupRedirectUrl();
       window.open(url, 'privy_oauth', 'width=500,height=600,scrollbars=yes');
     } else {
@@ -119,16 +142,46 @@ export default function LoginPage() {
       <h1 className="max-w-lg text-center text-3xl font-bold text-white sm:text-4xl">
         Stack points. Win passes. Get Based.
       </h1>
-      <button
-        type="button"
-        onClick={handleSignIn}
-        className="rounded-xl bg-[#0052FF] px-8 py-4 font-semibold text-white transition hover:bg-[#0046e0]"
-      >
-        Sign in with X
-      </button>
+      <div className="flex flex-col gap-3">
+        {inIframe ? (
+          <>
+            <button
+              type="button"
+              onClick={handleSignInFarcaster}
+              className="rounded-xl bg-[#8B5CF6] px-8 py-4 font-semibold text-white transition hover:bg-[#7c3aed]"
+            >
+              Sign in with Farcaster
+            </button>
+            <button
+              type="button"
+              onClick={handleSignInTwitter}
+              className="rounded-xl border border-white/20 bg-white/5 px-8 py-4 font-semibold text-white transition hover:bg-white/10"
+            >
+              Sign in with X (opens in new window)
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={handleSignInTwitter}
+              className="rounded-xl bg-[#0052FF] px-8 py-4 font-semibold text-white transition hover:bg-[#0046e0]"
+            >
+              Sign in with X
+            </button>
+            <button
+              type="button"
+              onClick={handleSignInFarcaster}
+              className="rounded-xl border border-white/20 bg-white/5 px-8 py-4 font-semibold text-white transition hover:bg-white/10"
+            >
+              Sign in with Farcaster
+            </button>
+          </>
+        )}
+      </div>
       {inIframe && (
         <p className="max-w-sm text-center text-sm text-white/50">
-          Opens in a new window so you can sign in with X safely.
+          Use Farcaster to sign in here, or open X in a new window.
         </p>
       )}
     </div>

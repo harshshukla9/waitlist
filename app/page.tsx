@@ -1,8 +1,8 @@
 'use client';
 
 import { usePrivy, useLoginWithOAuth } from '@privy-io/react-auth';
-import { useRouter } from 'next/navigation';
-import { useEffect, useCallback, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useCallback, useRef, Suspense } from 'react';
 import {
   isInIframe,
   isOAuthPopupMode,
@@ -11,7 +11,9 @@ import {
   PRIVY_AUTH_COMPLETE,
 } from '@/lib/auth-utils';
 
-export default function LoginPage() {
+function LoginContent() {
+  const searchParams = useSearchParams();
+  const refCode = searchParams.get('ref') ?? undefined;
   const { ready, authenticated, getAccessToken } = usePrivy();
   const { initOAuth } = useLoginWithOAuth({
     onComplete: useCallback(
@@ -27,6 +29,10 @@ export default function LoginPage() {
           const accessToken = await getAccessToken();
           if (!accessToken) return;
 
+          const storedRef = typeof window !== 'undefined'
+            ? sessionStorage.getItem('waitlist_ref') ?? undefined
+            : undefined;
+
           await fetch('/api/users/create', {
             method: 'POST',
             headers: {
@@ -37,6 +43,7 @@ export default function LoginPage() {
               twitterId: twitter.subject,
               username: twitter.username ?? '',
               pfpUrl: twitter.profilePictureUrl ?? null,
+              referredByCode: storedRef,
             }),
           });
         } catch (err) {
@@ -52,25 +59,26 @@ export default function LoginPage() {
   const oauthPopupParam = isOAuthPopupMode();
   const autoTriggered = useRef(false);
 
-  // Popup: when auth completes, notify opener and close
+  useEffect(() => {
+    if (refCode && typeof window !== 'undefined') {
+      sessionStorage.setItem('waitlist_ref', refCode);
+    }
+  }, [refCode]);
+
   useEffect(() => {
     if (!ready || !authenticated || !isPopup) return;
     if (typeof window === 'undefined' || !window.opener) return;
-
     const origin = window.location.origin;
     window.opener.postMessage({ type: PRIVY_AUTH_COMPLETE }, origin);
     window.close();
   }, [ready, authenticated, isPopup]);
 
-  // Redirect to dashboard when authenticated (standalone and iframe after popup auth)
   useEffect(() => {
     if (ready && authenticated && !isPopup) router.push('/dashboard');
   }, [ready, authenticated, isPopup, router]);
 
-  // Iframe: listen for auth complete from popup and refresh so Privy state updates
   useEffect(() => {
     if (!inIframe || typeof window === 'undefined') return;
-
     const handler = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === PRIVY_AUTH_COMPLETE) {
@@ -81,7 +89,6 @@ export default function LoginPage() {
     return () => window.removeEventListener('message', handler);
   }, [inIframe, router]);
 
-  // Popup with oauth_popup=1: auto-trigger OAuth once ready so user doesn't have to click again
   useEffect(() => {
     if (!ready || authenticated || !isPopup || !oauthPopupParam) return;
     if (autoTriggered.current) return;
@@ -99,7 +106,6 @@ export default function LoginPage() {
     );
   }
 
-  // Popup waiting for OAuth: show short message (OAuth will redirect away shortly)
   if (isPopup && oauthPopupParam && !authenticated) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-8 bg-[#0a0a0a] px-6">
@@ -110,7 +116,8 @@ export default function LoginPage() {
 
   const handleSignIn = () => {
     if (inIframe) {
-      const url = getOAuthPopupRedirectUrl();
+      let url = getOAuthPopupRedirectUrl();
+      if (refCode) url += `&ref=${encodeURIComponent(refCode)}`;
       window.open(url, 'privy_oauth', 'width=500,height=600,scrollbars=yes');
     } else {
       initOAuth({ provider: 'twitter' });
@@ -122,6 +129,9 @@ export default function LoginPage() {
       <h1 className="max-w-lg text-center text-3xl font-bold text-white sm:text-4xl">
         Stack points. Win passes. Get Based.
       </h1>
+      {refCode && (
+        <p className="text-sm text-[#0052FF]">Referred by: {refCode}</p>
+      )}
       <button
         type="button"
         onClick={handleSignIn}
@@ -135,5 +145,19 @@ export default function LoginPage() {
         </p>
       )}
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a]">
+          <p className="text-white/80">Loading...</p>
+        </div>
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 }

@@ -1,9 +1,4 @@
-import { Redis } from '@upstash/redis';
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+import { getDb } from './mongodb';
 
 export type WaitlistUser = {
   privyDid: string;
@@ -13,24 +8,13 @@ export type WaitlistUser = {
   walletAddress: string | null;
   points: number;
   referralCode: string;
-  createdAt: string;
+  referredBy: string | null;
+  referralCount: number;
+  completedActions: string[];
+  lastCheckIn: Date | null;
+  lastDailyPost: { twitter: Date | null; farcaster: Date | null };
+  createdAt: Date;
 };
-
-const USER_PREFIX = 'waitlist:user:';
-const USER_BY_TWITTER_PREFIX = 'waitlist:user:twitter:';
-const USER_BY_REFERRAL_PREFIX = 'waitlist:user:ref:';
-
-function userKey(privyDid: string) {
-  return `${USER_PREFIX}${privyDid}`;
-}
-
-function userByTwitterKey(twitterId: string) {
-  return `${USER_BY_TWITTER_PREFIX}${twitterId}`;
-}
-
-function userByReferralKey(referralCode: string) {
-  return `${USER_BY_REFERRAL_PREFIX}${referralCode}`;
-}
 
 function generateReferralCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -41,19 +25,29 @@ function generateReferralCode(): string {
   return code;
 }
 
+function usersCol() {
+  return getDb().then((db) => db.collection<WaitlistUser>('users'));
+}
+
 export async function getUserByPrivyDid(
   privyDid: string
 ): Promise<WaitlistUser | null> {
-  const data = await redis.get<WaitlistUser>(userKey(privyDid));
-  return data ?? null;
+  const col = await usersCol();
+  return col.findOne({ privyDid }) as Promise<WaitlistUser | null>;
 }
 
 export async function getUserByTwitterId(
   twitterId: string
 ): Promise<WaitlistUser | null> {
-  const privyDid = await redis.get<string>(userByTwitterKey(twitterId));
-  if (!privyDid) return null;
-  return getUserByPrivyDid(privyDid);
+  const col = await usersCol();
+  return col.findOne({ twitterId }) as Promise<WaitlistUser | null>;
+}
+
+export async function getUserByReferralCode(
+  code: string
+): Promise<WaitlistUser | null> {
+  const col = await usersCol();
+  return col.findOne({ referralCode: code }) as Promise<WaitlistUser | null>;
 }
 
 export async function createUser(params: {
@@ -61,16 +55,16 @@ export async function createUser(params: {
   twitterId: string;
   username: string;
   pfpUrl: string | null;
-  referralCode?: string;
+  referredByCode?: string;
 }): Promise<WaitlistUser> {
-  const existing = await getUserByPrivyDid(params.privyDid);
-  if (existing) return existing;
+  const col = await usersCol();
 
-  let referralCode = params.referralCode ?? generateReferralCode();
-  let exists = await redis.get(userByReferralKey(referralCode));
-  while (exists) {
+  const existing = await col.findOne({ privyDid: params.privyDid });
+  if (existing) return existing as WaitlistUser;
+
+  let referralCode = generateReferralCode();
+  while (await col.findOne({ referralCode })) {
     referralCode = generateReferralCode();
-    exists = await redis.get(userByReferralKey(referralCode));
   }
 
   const user: WaitlistUser = {
@@ -81,15 +75,15 @@ export async function createUser(params: {
     walletAddress: null,
     points: 0,
     referralCode,
-    createdAt: new Date().toISOString(),
+    referredBy: params.referredByCode ?? null,
+    referralCount: 0,
+    completedActions: [],
+    lastCheckIn: null,
+    lastDailyPost: { twitter: null, farcaster: null },
+    createdAt: new Date(),
   };
 
-  const pipe = redis.pipeline();
-  pipe.set(userKey(params.privyDid), user);
-  pipe.set(userByTwitterKey(params.twitterId), params.privyDid);
-  pipe.set(userByReferralKey(referralCode), params.privyDid);
-  await pipe.exec();
-
+  await col.insertOne(user as any);
   return user;
 }
 
@@ -97,13 +91,63 @@ export async function updateUserWallet(
   privyDid: string,
   walletAddress: string
 ): Promise<WaitlistUser | null> {
-  const user = await getUserByPrivyDid(privyDid);
-  if (!user) return null;
+  const col = await usersCol();
+  const result = await col.findOneAndUpdate(
+    { privyDid },
+    { $set: { walletAddress } },
+    { returnDocument: 'after' }
+  );
+  return (result as WaitlistUser | null) ?? null;
+}
 
-  const updated: WaitlistUser = {
-    ...user,
-    walletAddress,
-  };
-  await redis.set(userKey(privyDid), updated);
-  return updated;
+export async function addPoints(
+  privyDid: string,
+  points: number
+): Promise<WaitlistUser | null> {
+  const col = await usersCol();
+  const result = await col.findOneAndUpdate(
+    { privyDid },
+    { $inc: { points } },
+    { returnDocument: 'after' }
+  );
+  return (result as WaitlistUser | null) ?? null;
+}
+
+export async function incrementReferralCount(
+  privyDid: string
+): Promise<number> {
+  const col = await usersCol();
+  const result = await col.findOneAndUpdate(
+    { privyDid },
+    { $inc: { referralCount: 1 } },
+    { returnDocument: 'after' }
+  );
+  return (result as WaitlistUser | null)?.referralCount ?? 0;
+}
+
+export async function markActionCompleted(
+  privyDid: string,
+  action: string
+): Promise<void> {
+  const col = await usersCol();
+  await col.updateOne(
+    { privyDid },
+    { $addToSet: { completedActions: action } }
+  );
+}
+
+export async function updateLastCheckIn(privyDid: string): Promise<void> {
+  const col = await usersCol();
+  await col.updateOne({ privyDid }, { $set: { lastCheckIn: new Date() } });
+}
+
+export async function updateLastDailyPost(
+  privyDid: string,
+  platform: 'twitter' | 'farcaster'
+): Promise<void> {
+  const col = await usersCol();
+  await col.updateOne(
+    { privyDid },
+    { $set: { [`lastDailyPost.${platform}`]: new Date() } }
+  );
 }
